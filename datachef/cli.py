@@ -8,6 +8,16 @@ from pathlib import Path
 
 def main() -> None:
     """Launch DataChef through Streamlit while forwarding CLI arguments."""
+    import os
+
+    # Ensure a writable directory is available for Streamlit if user's $HOME is read-only
+    try:
+        (Path.home() / ".streamlit").mkdir(parents=True, exist_ok=True)
+    except OSError:
+        fallback_home = Path("/tmp") / "datachef_user_home"
+        fallback_home.mkdir(parents=True, exist_ok=True)
+        os.environ["HOME"] = str(fallback_home)
+
     from streamlit.web import cli as streamlit_cli
 
     # Streamlit's help includes Unicode glyphs. Older Windows console encodings
@@ -18,7 +28,7 @@ def main() -> None:
             reconfigure(encoding="utf-8")
 
     app_path = Path(__file__).resolve().parent / "ui" / "app.py"
-    sys.argv = ["streamlit", "run", str(app_path), *sys.argv[1:]]
+    sys.argv = ["streamlit", "run", str(app_path), "--browser.gatherUsageStats", "false", *sys.argv[1:]]
     raise SystemExit(streamlit_cli.main())
 
 

@@ -2,13 +2,24 @@
 
 from __future__ import annotations
 
+import contextlib
 import os
+import shutil
 from pathlib import Path
 
 from dotenv import load_dotenv
 
+# Auto-bootstrap .env from .env.example if missing
+_root = Path(__file__).resolve().parent.parent
+_env_path = _root / ".env"
+_example_path = _root / ".env.example"
+
+if not _env_path.exists() and _example_path.exists():
+    with contextlib.suppress(OSError):
+        shutil.copy(_example_path, _env_path)
+
 # Load .env file if present (silently ignored when absent)
-load_dotenv()
+load_dotenv(dotenv_path=_env_path if _env_path.exists() else None)
 
 
 def _env(key: str, default: str) -> str:
@@ -76,18 +87,27 @@ CONTEXT_HISTORY_N: int = _env_int("DATACHEF_CONTEXT_HISTORY_N", 3)
 # Storage paths
 # ---------------------------------------------------------------------------
 
-_home = Path.home() / ".datachef"
+def _resolve_storage_dir(env_key: str, subdir_name: str) -> Path:
+    """Resolve storage path with graceful fallback if home directory is read-only."""
+    candidates = [
+        os.environ.get(env_key),
+        Path.home() / ".datachef" / subdir_name,
+        Path(__file__).resolve().parent.parent / ".datachef" / subdir_name,
+        Path("/tmp") / "datachef" / subdir_name,
+    ]
+    for candidate in candidates:
+        if candidate:
+            path = Path(candidate)
+            try:
+                path.mkdir(parents=True, exist_ok=True)
+                return path
+            except OSError:
+                continue
+    return Path("/tmp") / "datachef" / subdir_name
 
-INVESTIGATION_DIR: Path = Path(
-    _env("DATACHEF_INVESTIGATION_DIR", str(_home / "investigations"))
-)
-CACHE_DIR: Path = Path(
-    _env("DATACHEF_CACHE_DIR", str(_home / "cache"))
-)
 
-# Ensure directories exist at import time
-INVESTIGATION_DIR.mkdir(parents=True, exist_ok=True)
-CACHE_DIR.mkdir(parents=True, exist_ok=True)
+INVESTIGATION_DIR: Path = _resolve_storage_dir("DATACHEF_INVESTIGATION_DIR", "investigations")
+CACHE_DIR: Path = _resolve_storage_dir("DATACHEF_CACHE_DIR", "cache")
 
 # ---------------------------------------------------------------------------
 # Validation

@@ -71,6 +71,63 @@ def get_config_errors() -> list[str]:
     return st.session_state.get(_KEYS["config_errors"], [])
 
 
+def get_active_provider_info() -> tuple[str, str]:
+    """Return (provider_name, model_name)."""
+    prov = (st.session_state.get("datachef_runtime_provider") or config.PROVIDER).lower()
+    if prov == "ollama":
+        model = st.session_state.get("datachef_runtime_model_id") or config.OLLAMA_MODEL
+    else:
+        model = st.session_state.get("datachef_runtime_model_id") or config.HF_MODEL_ID
+    return prov, model
+
+
+def update_provider_settings(
+    provider: str,
+    api_key: str = "",
+    model_id: str = "",
+    host: str = "",
+) -> list[str]:
+    """Update active provider settings at runtime and re-validate."""
+    provider = provider.lower()
+    st.session_state["datachef_runtime_provider"] = provider
+    st.session_state["datachef_runtime_api_key"] = api_key
+    st.session_state["datachef_runtime_model_id"] = model_id
+    st.session_state["datachef_runtime_host"] = host
+
+    errors: list[str] = []
+    if provider == "ollama":
+        target_model = model_id or config.OLLAMA_MODEL
+        target_host = host or config.OLLAMA_HOST
+        if not target_model:
+            errors.append("Ollama model name is required.")
+        else:
+            try:
+                import requests
+                resp = requests.get(f"{target_host}/api/tags", timeout=1.5)
+                if resp.status_code != 200:
+                    errors.append(f"Ollama server returned status {resp.status_code} at {target_host}.")
+            except Exception:
+                errors.append(
+                    f"Cannot connect to Ollama at {target_host}. "
+                    f"Ensure Ollama is running (`ollama serve`) and model is pulled (`ollama pull {target_model}`)."
+                )
+    elif provider == "huggingface":
+        target_key = api_key if api_key != "" else config.HF_API_KEY
+        target_model = model_id or config.HF_MODEL_ID
+        if not target_key:
+            errors.append("Hugging Face API key is required. Enter your token above.")
+        if not target_model:
+            errors.append("Hugging Face model ID is required.")
+
+    st.session_state[_KEYS["config_errors"]] = errors
+
+    # Reset cached agent so the next build_agent() uses the updated provider
+    if _KEYS["agent"] in st.session_state:
+        del st.session_state[_KEYS["agent"]]
+
+    return errors
+
+
 def load_dataset(uploaded_file: Any) -> tuple[pl.DataFrame, bool]:
     """
     Load an uploaded Streamlit file into the DatasetStore.
@@ -114,7 +171,17 @@ def build_agent() -> InvestigationAgent:
     state = get_state()
     store = get_dataset_store()
     registry = get_tool_registry()
-    provider = get_provider()
+    runtime_prov = st.session_state.get("datachef_runtime_provider")
+    runtime_key = st.session_state.get("datachef_runtime_api_key")
+    runtime_model = st.session_state.get("datachef_runtime_model_id")
+    runtime_host = st.session_state.get("datachef_runtime_host")
+
+    provider = get_provider(
+        provider=runtime_prov,
+        api_key=runtime_key,
+        model_id=runtime_model,
+        host=runtime_host,
+    )
     df = store.get_frame()
 
     if state.dataset_profile is None:
