@@ -15,7 +15,7 @@
 
 Unlike standard chatbots that hallucinate numerical facts, DataChef adheres strictly to the principle that **computation is ground truth**: the model reasons, plans, and selects analytical tools, while all calculations and statistics are computed locally on your machine.
 
-![DataChef Dashboard](docs/assets/demo.png)
+![DataChef Dashboard](assets/demo.png)
 
 ---
 
