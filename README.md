@@ -63,8 +63,8 @@ DataChef strictly separates model reasoning from data execution:
 ```mermaid
 flowchart LR
     A[Tabular Dataset<br>CSV / Parquet] --> B[Deterministic Analytical Engine<br>Polars + SciPy]
-    B -->|Column Schemas & Summary Stats Only| C[Open-Weight LLM<br>Ollama / Hugging Face]
-    C -->|Structured Tool Calls| B
+    B ---->|"Column Schemas &<br>Summary Stats Only"| C[Open-Weight LLM<br>Ollama / Hugging Face]
+    C ---->|"Structured<br>Tool Calls"| B
     B --> D[Verified Findings<br>Interactive Charts + Audit Log]
 ```
 
