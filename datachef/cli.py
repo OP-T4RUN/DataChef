@@ -9,12 +9,13 @@ from pathlib import Path
 def main() -> None:
     """Launch DataChef through Streamlit while forwarding CLI arguments."""
     import os
+    import tempfile
 
     # Ensure a writable directory is available for Streamlit if user's $HOME is read-only
     try:
         (Path.home() / ".streamlit").mkdir(parents=True, exist_ok=True)
     except OSError:
-        fallback_home = Path("/tmp") / "datachef_user_home"
+        fallback_home = Path(tempfile.gettempdir()) / "datachef_user_home"
         fallback_home.mkdir(parents=True, exist_ok=True)
         os.environ["HOME"] = str(fallback_home)
 

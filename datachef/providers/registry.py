@@ -24,8 +24,8 @@ def get_provider(
 
     if active_provider == "ollama":
         return OllamaProvider(
-            host=host or config.OLLAMA_HOST,
-            model_id=model_id or config.OLLAMA_MODEL,
+            host=host if host is not None else config.OLLAMA_HOST,
+            model_id=model_id if model_id is not None else config.OLLAMA_MODEL,
             timeout=config.REQUEST_TIMEOUT,
             max_retries=config.MAX_RETRIES,
         )
@@ -33,7 +33,7 @@ def get_provider(
     if active_provider == "huggingface":
         return HuggingFaceProvider(
             api_key=api_key if api_key is not None else config.HF_API_KEY,
-            model_id=model_id or config.HF_MODEL_ID,
+            model_id=model_id if model_id is not None else config.HF_MODEL_ID,
             inference_provider=config.HF_INFERENCE_PROVIDER,
             timeout=config.REQUEST_TIMEOUT,
             max_retries=config.MAX_RETRIES,

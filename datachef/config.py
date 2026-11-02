@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import os
 import shutil
+import tempfile
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -89,11 +90,12 @@ CONTEXT_HISTORY_N: int = _env_int("DATACHEF_CONTEXT_HISTORY_N", 3)
 
 def _resolve_storage_dir(env_key: str, subdir_name: str) -> Path:
     """Resolve storage path with graceful fallback if home directory is read-only."""
+    temp_dir = Path(tempfile.gettempdir())
     candidates = [
         os.environ.get(env_key),
         Path.home() / ".datachef" / subdir_name,
         Path(__file__).resolve().parent.parent / ".datachef" / subdir_name,
-        Path("/tmp") / "datachef" / subdir_name,
+        temp_dir / "datachef" / subdir_name,
     ]
     for candidate in candidates:
         if candidate:
@@ -103,7 +105,7 @@ def _resolve_storage_dir(env_key: str, subdir_name: str) -> Path:
                 return path
             except OSError:
                 continue
-    return Path("/tmp") / "datachef" / subdir_name
+    return temp_dir / "datachef" / subdir_name
 
 
 INVESTIGATION_DIR: Path = _resolve_storage_dir("DATACHEF_INVESTIGATION_DIR", "investigations")
@@ -113,7 +115,12 @@ CACHE_DIR: Path = _resolve_storage_dir("DATACHEF_CACHE_DIR", "cache")
 # Validation
 # ---------------------------------------------------------------------------
 
-def validate() -> list[str]:
+def validate(
+    provider: str | None = None,
+    api_key: str | None = None,
+    model_id: str | None = None,
+    host: str | None = None,
+) -> list[str]:
     """Return a list of configuration error messages (empty if config is valid)."""
     errors: list[str] = []
     positive_ints = {
@@ -133,31 +140,39 @@ def validate() -> list[str]:
         errors.append(f"DATACHEF_MAX_RETRIES must be zero or greater (got {MAX_RETRIES}).")
     if not 0 <= TEMPERATURE <= 2:
         errors.append(f"DATACHEF_TEMPERATURE must be between 0 and 2 (got {TEMPERATURE}).")
-    if PROVIDER == "ollama":
-        if not OLLAMA_MODEL:
-            errors.append("OLLAMA_MODEL is not set. Specify e.g. 'gemma4' or 'gemma2:9b'.")
-        # Test connection to Ollama host (quick non-blocking check)
-        try:
-            import requests
-            resp = requests.get(f"{OLLAMA_HOST}/api/tags", timeout=1.5)
-            if resp.status_code != 200:
-                errors.append(f"Ollama server returned status {resp.status_code} at {OLLAMA_HOST}.")
-        except Exception:
-            errors.append(
-                f"Cannot connect to Ollama at {OLLAMA_HOST}. "
-                "Ensure Ollama is running (`ollama serve`) and the model is pulled (`ollama pull "
-                f"{OLLAMA_MODEL}`)."
-            )
-    elif PROVIDER == "huggingface":
-        if not HF_API_KEY:
+
+    active_provider = (provider or PROVIDER).lower()
+    if active_provider == "ollama":
+        target_model = model_id if model_id is not None else OLLAMA_MODEL
+        target_host = host if host is not None else OLLAMA_HOST
+        if not target_model:
+            errors.append("Ollama model name is required. Specify e.g. 'gemma4' or 'gemma2:9b'.")
+        else:
+            # Test connection to Ollama host (quick non-blocking check)
+            try:
+                import requests
+
+                resp = requests.get(f"{target_host}/api/tags", timeout=1.5)
+                if resp.status_code != 200:
+                    errors.append(f"Ollama server returned status {resp.status_code} at {target_host}.")
+            except Exception:
+                errors.append(
+                    f"Cannot connect to Ollama at {target_host}. "
+                    "Ensure Ollama is running (`ollama serve`) and the model is pulled (`ollama pull "
+                    f"{target_model}`)."
+                )
+    elif active_provider == "huggingface":
+        target_key = api_key if api_key is not None else HF_API_KEY
+        target_model = model_id if model_id is not None else HF_MODEL_ID
+        if not target_key:
             errors.append(
                 "HF_API_KEY is not set. "
                 "Copy .env.example to .env and add your Hugging Face API key, "
                 "or set DATACHEF_PROVIDER=ollama to run fully locally."
             )
-        if not HF_MODEL_ID:
+        if not target_model:
             errors.append("HF_MODEL_ID is not set.")
     else:
-        errors.append(f"Unknown provider '{PROVIDER}'. Supported providers: 'ollama', 'huggingface'.")
+        errors.append(f"Unknown provider '{active_provider}'. Supported providers: 'ollama', 'huggingface'.")
 
     return errors

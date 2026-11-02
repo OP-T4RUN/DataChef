@@ -36,8 +36,8 @@ class OllamaProvider(BaseProvider):
         timeout: int | None = None,
         max_retries: int | None = None,
     ) -> None:
-        self._host = (host or config.OLLAMA_HOST).rstrip("/")
-        self._model = model_id or config.OLLAMA_MODEL
+        self._host = (host if host is not None else config.OLLAMA_HOST).rstrip("/")
+        self._model = model_id if model_id is not None else config.OLLAMA_MODEL
         self._timeout = timeout or config.REQUEST_TIMEOUT
         self._max_retries = max_retries if max_retries is not None else config.MAX_RETRIES
 

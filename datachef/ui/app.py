@@ -138,7 +138,12 @@ def main() -> None:
         st.markdown("##### 🤖 Inference Engine")
         prov, model = session_store.get_active_provider_info()
         is_ollama = prov == "ollama"
-        provider_label = "OLLAMA (Local)" if is_ollama else "HUGGING FACE (Cloud)"
+        if is_ollama:
+            provider_label = "OLLAMA (Local)"
+        elif prov == "huggingface":
+            provider_label = "HUGGING FACE (Cloud)"
+        else:
+            provider_label = f"UNKNOWN ({prov.upper()})"
         display_model = model.split("/")[-1] if "/" in model else model
         st.caption(f"**Provider:** `{provider_label}`")
         st.caption(f"**Model:** `{display_model}`")
@@ -148,7 +153,7 @@ def main() -> None:
             for err in cfg_errors:
                 st.warning(f"⚠️ {err}")
         else:
-            status_text = "🟢 Ollama Connected" if is_ollama else "🟢 API Key Connected"
+            status_text = "🟢 Ollama Connected" if is_ollama else ("🟢 API Key Connected" if prov == "huggingface" else "🟢 Connected")
             st.success(status_text)
 
         with st.expander("⚙️ Provider Settings", expanded=bool(cfg_errors)):
@@ -161,8 +166,8 @@ def main() -> None:
             selected_prov = "ollama" if "Ollama" in provider_choice else "huggingface"
 
             if selected_prov == "ollama":
-                current_host = st.session_state.get("datachef_runtime_host") or config.OLLAMA_HOST
-                current_model = st.session_state.get("datachef_runtime_model_id") or config.OLLAMA_MODEL
+                current_host = st.session_state.get("datachef_runtime_ollama_host") or config.OLLAMA_HOST
+                current_model = st.session_state.get("datachef_runtime_ollama_model_id") or config.OLLAMA_MODEL
                 host_val = st.text_input("Ollama Host", value=current_host, key="ui_ollama_host")
                 model_val = st.text_input("Ollama Model", value=current_model, key="ui_ollama_model")
                 if st.button("Apply Settings", key="apply_ollama_btn", width="stretch"):
@@ -173,8 +178,8 @@ def main() -> None:
                     )
                     st.rerun()
             else:
-                current_key = st.session_state.get("datachef_runtime_api_key") or config.HF_API_KEY
-                current_model = st.session_state.get("datachef_runtime_model_id") or config.HF_MODEL_ID
+                current_key = st.session_state.get("datachef_runtime_hf_api_key") or config.HF_API_KEY
+                current_model = st.session_state.get("datachef_runtime_hf_model_id") or config.HF_MODEL_ID
                 key_val = st.text_input("HF API Key", value=current_key, type="password", key="ui_hf_key")
                 model_val = st.text_input("HF Model ID", value=current_model, key="ui_hf_model")
                 if st.button("Apply Settings", key="apply_hf_btn", width="stretch"):

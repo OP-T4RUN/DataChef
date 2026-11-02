@@ -50,8 +50,8 @@ class HuggingFaceProvider(BaseProvider):
         timeout: int | None = None,
         max_retries: int | None = None,
     ) -> None:
-        self._api_key = api_key or config.HF_API_KEY
-        self._model = model_id or config.HF_MODEL_ID
+        self._api_key = api_key if api_key is not None else config.HF_API_KEY
+        self._model = model_id if model_id is not None else config.HF_MODEL_ID
         self._inference_provider = inference_provider or config.HF_INFERENCE_PROVIDER
         self._timeout = timeout or config.REQUEST_TIMEOUT
         self._max_retries = max_retries if max_retries is not None else config.MAX_RETRIES
