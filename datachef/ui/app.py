@@ -136,19 +136,59 @@ def main() -> None:
 
         # Open-Source Engine & Inference Status
         st.markdown("##### 🤖 Inference Engine")
-        is_ollama = config.PROVIDER == "ollama"
-        provider_label = "OLLAMA (Local)" if is_ollama else "HUGGING FACE (Cloud)"
-        model_name = config.OLLAMA_MODEL if is_ollama else config.HF_MODEL_ID.split("/")[-1]
+        prov, model = session_store.get_active_provider_info()
+        is_ollama = prov == "ollama"
+        if is_ollama:
+            provider_label = "OLLAMA (Local)"
+        elif prov == "huggingface":
+            provider_label = "HUGGING FACE (Cloud)"
+        else:
+            provider_label = f"UNKNOWN ({prov.upper()})"
+        display_model = model.split("/")[-1] if "/" in model else model
         st.caption(f"**Provider:** `{provider_label}`")
-        st.caption(f"**Model:** `{model_name}`")
+        st.caption(f"**Model:** `{display_model}`")
 
         cfg_errors = session_store.get_config_errors()
         if cfg_errors:
             for err in cfg_errors:
                 st.warning(f"⚠️ {err}")
         else:
-            status_text = "🟢 Ollama Connected" if is_ollama else "🟢 API Key Connected"
+            status_text = "🟢 Ollama Connected" if is_ollama else ("🟢 API Key Connected" if prov == "huggingface" else "🟢 Connected")
             st.success(status_text)
+
+        with st.expander("⚙️ Provider Settings", expanded=bool(cfg_errors)):
+            provider_choice = st.selectbox(
+                "Provider",
+                options=["Ollama (Local)", "Hugging Face (Cloud)"],
+                index=0 if is_ollama else 1,
+                key="ui_provider_choice",
+            )
+            selected_prov = "ollama" if "Ollama" in provider_choice else "huggingface"
+
+            if selected_prov == "ollama":
+                current_host = st.session_state.get("datachef_runtime_ollama_host") or config.OLLAMA_HOST
+                current_model = st.session_state.get("datachef_runtime_ollama_model_id") or config.OLLAMA_MODEL
+                host_val = st.text_input("Ollama Host", value=current_host, key="ui_ollama_host")
+                model_val = st.text_input("Ollama Model", value=current_model, key="ui_ollama_model")
+                if st.button("Apply Settings", key="apply_ollama_btn", width="stretch"):
+                    session_store.update_provider_settings(
+                        provider="ollama",
+                        host=host_val.strip(),
+                        model_id=model_val.strip(),
+                    )
+                    st.rerun()
+            else:
+                current_key = st.session_state.get("datachef_runtime_hf_api_key") or config.HF_API_KEY
+                current_model = st.session_state.get("datachef_runtime_hf_model_id") or config.HF_MODEL_ID
+                key_val = st.text_input("HF API Key", value=current_key, type="password", key="ui_hf_key")
+                model_val = st.text_input("HF Model ID", value=current_model, key="ui_hf_model")
+                if st.button("Apply Settings", key="apply_hf_btn", width="stretch"):
+                    session_store.update_provider_settings(
+                        provider="huggingface",
+                        api_key=key_val.strip(),
+                        model_id=model_val.strip(),
+                    )
+                    st.rerun()
 
         st.markdown("---")
         if st.button("🔄 Reset Current Session", width="stretch"):

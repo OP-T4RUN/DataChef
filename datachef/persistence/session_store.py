@@ -35,6 +35,26 @@ _KEYS = {
 }
 
 
+def validate_runtime_provider() -> list[str]:
+    """Validate current runtime provider settings."""
+    prov = (st.session_state.get("datachef_runtime_provider") or config.PROVIDER).lower()
+    try:
+        if prov == "ollama":
+            target_model = st.session_state.get("datachef_runtime_ollama_model_id")
+            target_host = st.session_state.get("datachef_runtime_ollama_host")
+            return config.validate(provider="ollama", model_id=target_model, host=target_host)
+
+        if prov == "huggingface":
+            target_key = st.session_state.get("datachef_runtime_hf_api_key")
+            target_model = st.session_state.get("datachef_runtime_hf_model_id")
+            return config.validate(provider="huggingface", api_key=target_key, model_id=target_model)
+
+        return config.validate(provider=prov)
+    except TypeError:
+        # Fallback if config.validate is monkeypatched as a zero-arg callable in tests
+        return config.validate()
+
+
 def initialize() -> None:
     """Initialize all session state objects on first run."""
     if _KEYS["state"] not in st.session_state:
@@ -48,7 +68,7 @@ def initialize() -> None:
     if _KEYS["tool_registry"] not in st.session_state:
         st.session_state[_KEYS["tool_registry"]] = ToolRegistry()
     if _KEYS["config_errors"] not in st.session_state:
-        st.session_state[_KEYS["config_errors"]] = config.validate()
+        st.session_state[_KEYS["config_errors"]] = validate_runtime_provider()
 
 
 def get_state() -> InvestigationState:
@@ -69,6 +89,58 @@ def get_record_store() -> InvestigationRecord:
 
 def get_config_errors() -> list[str]:
     return st.session_state.get(_KEYS["config_errors"], [])
+
+
+def get_active_provider_info() -> tuple[str, str]:
+    """Return (provider_name, model_name)."""
+    prov = (st.session_state.get("datachef_runtime_provider") or config.PROVIDER).lower()
+    if prov == "ollama":
+        runtime_model = st.session_state.get("datachef_runtime_ollama_model_id")
+        model = runtime_model if runtime_model is not None else config.OLLAMA_MODEL
+    elif prov == "huggingface":
+        runtime_model = st.session_state.get("datachef_runtime_hf_model_id")
+        model = runtime_model if runtime_model is not None else config.HF_MODEL_ID
+    else:
+        model = "unknown"
+    return prov, model
+
+
+def update_provider_settings(
+    provider: str,
+    api_key: str | None = None,
+    model_id: str | None = None,
+    host: str | None = None,
+) -> list[str]:
+    """Update active provider settings at runtime and re-validate."""
+    provider_norm = provider.strip().lower()
+
+    # Reject unsupported provider names without corrupting active session provider
+    if provider_norm not in {"ollama", "huggingface"}:
+        errors = [f"Unknown provider '{provider}'. Supported providers: 'ollama', 'huggingface'."]
+        st.session_state[_KEYS["config_errors"]] = errors
+        return errors
+
+    st.session_state["datachef_runtime_provider"] = provider_norm
+
+    if provider_norm == "ollama":
+        if host is not None:
+            st.session_state["datachef_runtime_ollama_host"] = host
+        if model_id is not None:
+            st.session_state["datachef_runtime_ollama_model_id"] = model_id
+    elif provider_norm == "huggingface":
+        if api_key is not None:
+            st.session_state["datachef_runtime_hf_api_key"] = api_key
+        if model_id is not None:
+            st.session_state["datachef_runtime_hf_model_id"] = model_id
+
+    errors = validate_runtime_provider()
+    st.session_state[_KEYS["config_errors"]] = errors
+
+    # Reset cached agent so the next build_agent() uses the updated provider
+    if _KEYS["agent"] in st.session_state:
+        del st.session_state[_KEYS["agent"]]
+
+    return errors
 
 
 def load_dataset(uploaded_file: Any) -> tuple[pl.DataFrame, bool]:
@@ -114,7 +186,21 @@ def build_agent() -> InvestigationAgent:
     state = get_state()
     store = get_dataset_store()
     registry = get_tool_registry()
-    provider = get_provider()
+    runtime_prov = (st.session_state.get("datachef_runtime_provider") or config.PROVIDER).lower()
+    if runtime_prov == "ollama":
+        provider = get_provider(
+            provider="ollama",
+            model_id=st.session_state.get("datachef_runtime_ollama_model_id"),
+            host=st.session_state.get("datachef_runtime_ollama_host"),
+        )
+    elif runtime_prov == "huggingface":
+        provider = get_provider(
+            provider="huggingface",
+            api_key=st.session_state.get("datachef_runtime_hf_api_key"),
+            model_id=st.session_state.get("datachef_runtime_hf_model_id"),
+        )
+    else:
+        provider = get_provider(provider=runtime_prov)
     df = store.get_frame()
 
     if state.dataset_profile is None:
