@@ -29,6 +29,7 @@ class MockProvider(BaseProvider):
         tool_choice: str = "auto",
         temperature: float = 0.2,
         max_tokens: int = 1024,
+        response_format: dict[str, Any] | None = None,
     ) -> ProviderResponse:
         self.call_count += 1
         if self.call_count == 1:

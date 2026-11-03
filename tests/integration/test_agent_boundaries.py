@@ -25,6 +25,7 @@ class SequenceProvider(BaseProvider):
         tool_choice: str = "auto",
         temperature: float = 0.2,
         max_tokens: int = 1024,
+        response_format: dict[str, Any] | None = None,
     ) -> ProviderResponse:
         response = self.responses[self.call_count]
         self.call_count += 1

@@ -140,3 +140,84 @@ def test_recent_tool_results_excludes_failed_executions():
     recent = state.recent_tool_results(5)
 
     assert [r.call_id for r in recent] == [good.call_id]
+
+
+
+def test_finding_composer_structured_draft_success():
+    state = InvestigationState(session_id="test-session")
+    call_1 = ToolCallRecord(
+        turn_index=1,
+        tool_name="compare_groups",
+        arguments={},
+        result_summary="East mean is 150.",
+    )
+    call_2 = ToolCallRecord(
+        turn_index=2,
+        tool_name="describe_column",
+        arguments={},
+        result_summary="Total count is 1000.",
+    )
+    state.add_tool_record(call_1)
+    state.add_tool_record(call_2)
+
+    json_content = f"""
+    {{
+        "conclusion": "East significantly outperforms West.",
+        "interpretation": "Commercial market size explains the difference.",
+        "limitations": ["Only 2023 data included."],
+        "primary_evidence_call_ids": ["{call_1.call_id}"]
+    }}
+    """
+    finding = FindingComposer().compose(
+        state=state,
+        question="Compare sales across regions",
+        trigger="conversational",
+        final_response_content=json_content,
+        model_id="test-model",
+        provider="test",
+        temperature=0.2,
+    )
+
+    assert finding.conclusion == "East significantly outperforms West."
+    assert finding.interpretation == "Commercial market size explains the difference."
+    assert "Only 2023 data included." in finding.limitations
+    # Check that call_1 is marked primary, and call_2 is not
+    primaries = [e for e in finding.evidence if e.is_primary]
+    assert len(primaries) == 1
+    assert primaries[0].call_id == call_1.call_id
+
+
+def test_finding_composer_structured_unknown_call_id_flagged():
+    state = InvestigationState(session_id="test-session")
+    call_1 = ToolCallRecord(
+        turn_index=1,
+        tool_name="compare_groups",
+        arguments={},
+        result_summary="East mean is 150.",
+    )
+    state.add_tool_record(call_1)
+
+    json_content = """
+    {
+        "conclusion": "East leads.",
+        "interpretation": "Known trend.",
+        "limitations": [],
+        "primary_evidence_call_ids": ["unknown-call-id-999"]
+    }
+    """
+    finding = FindingComposer().compose(
+        state=state,
+        question="Compare sales across regions",
+        trigger="conversational",
+        final_response_content=json_content,
+        model_id="test-model",
+        provider="test",
+        temperature=0.2,
+    )
+
+    # Unknown ID should not appear as primary
+    assert not any(e.call_id == "unknown-call-id-999" for e in finding.evidence)
+    # Limitation should record that the unknown ID was referenced
+    assert any("unknown-call-id-999" in lim for lim in finding.limitations)
+    # Fallback to last successful record as primary since no valid primary IDs remained
+    assert finding.evidence[0].is_primary is True

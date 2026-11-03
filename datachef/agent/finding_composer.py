@@ -11,7 +11,7 @@ import json
 import math
 import re
 
-from datachef.context.models import Evidence, Finding, InvestigationState
+from datachef.context.models import Evidence, Finding, FindingDraft, InvestigationState
 
 
 class FindingComposer:
@@ -52,15 +52,38 @@ class FindingComposer:
         error:
             Set if the investigation failed with a non-recoverable error.
         """
-        conclusion, interpretation, limitations = _parse_conclusion(final_response_content)
+        draft = _parse_finding_draft(final_response_content)
+        validated_primary_ids: set[str] = set()
 
-        # Build evidence list from successful tool call records
         successful_records = [
             r for r in state.tool_call_log
             if r.validation_passed and r.execution_succeeded
         ]
+
+        if draft is not None:
+            conclusion = draft.conclusion
+            interpretation = draft.interpretation
+            limitations = list(draft.limitations)
+
+            known_ids = {r.call_id for r in successful_records}
+            for cid in draft.primary_evidence_call_ids:
+                if cid in known_ids:
+                    validated_primary_ids.add(cid)
+                else:
+                    limitations.append(
+                        f"Note: Model referenced an unknown tool call ID '{cid}', "
+                        "which was excluded from verified evidence."
+                    )
+        else:
+            conclusion, interpretation, limitations = _parse_conclusion(final_response_content)
+
         evidence: list[Evidence] = []
         for i, record in enumerate(successful_records):
+            is_primary = (
+                record.call_id in validated_primary_ids
+                if validated_primary_ids
+                else (i == len(successful_records) - 1)
+            )
             evidence.append(Evidence(
                 call_id=record.call_id,
                 turn_index=record.turn_index,
@@ -73,7 +96,7 @@ class FindingComposer:
                 execution_succeeded=record.execution_succeeded,
                 result_truncated=record.result_truncated,
                 timestamp=record.timestamp,
-                is_primary=(i == len(successful_records) - 1),  # Last result = primary
+                is_primary=is_primary,
             ))
 
         unverified_claims = _find_unverified_numbers(
@@ -137,6 +160,54 @@ class FindingComposer:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def _parse_finding_draft(content: str) -> FindingDraft | None:
+    """
+    Try to parse model output as a FindingDraft JSON object.
+
+    Handles: pure JSON, JSON inside markdown code fences, and JSON embedded in prose.
+    Returns None if parsing fails completely. Never raises.
+    """
+    content = content.strip()
+    if not content:
+        return None
+
+    # 1. Direct JSON parse
+    try:
+        return FindingDraft.model_validate_json(content)
+    except Exception:
+        pass
+
+    # 2. Extract from markdown code fence
+    fence_match = re.search(r"```(?:json)?\s*\n?(.*?)\n?```", content, re.DOTALL | re.IGNORECASE)
+    if fence_match:
+        try:
+            return FindingDraft.model_validate_json(fence_match.group(1).strip())
+        except Exception:
+            pass
+
+    # 3. Extract outermost { ... } block from surrounding prose
+    start = content.find("{")
+    end = content.rfind("}")
+    if start != -1 and end != -1 and end > start:
+        try:
+            return FindingDraft.model_validate_json(content[start : end + 1])
+        except Exception:
+            pass
+
+    return None
+
+
+def _has_conclusion_heading(content: str) -> bool:
+    """Return True if content contains an explicit legacy CONCLUSION heading."""
+    return bool(
+        re.search(
+            r"(?:^|\n)(?:#+\s*|\*\*)?CONCLUSION(?:\*\*)?[:\s]*",
+            content.strip(),
+            re.IGNORECASE,
+        )
+    )
 
 
 def _parse_conclusion(

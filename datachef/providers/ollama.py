@@ -52,6 +52,7 @@ class OllamaProvider(BaseProvider):
         tool_choice: str = "auto",
         temperature: float = 0.2,
         max_tokens: int = 1024,
+        response_format: dict[str, Any] | None = None,
     ) -> ProviderResponse:
         """
         Send a chat completion request to Ollama with retry logic.
@@ -74,6 +75,11 @@ class OllamaProvider(BaseProvider):
         # If tools provided and tool_choice is not "none"
         if tools and tool_choice != "none":
             payload["tools"] = tools
+        elif response_format:
+            if isinstance(response_format, dict):
+                payload["format"] = response_format.get("schema", "json")
+            else:
+                payload["format"] = response_format
 
         last_exc: Exception | None = None
         for attempt in range(self._max_retries + 1):

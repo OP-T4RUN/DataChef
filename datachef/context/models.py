@@ -11,7 +11,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 # ---------------------------------------------------------------------------
 # Column-level profile models
@@ -226,3 +226,51 @@ class CandidateFinding(BaseModel):
     heuristic_score: float = 0.0  # 0.0 – 1.0
     suggested_tools: list[str] = Field(default_factory=list)
     context_data: dict[str, Any] = Field(default_factory=dict)
+
+
+# ---------------------------------------------------------------------------
+# Structured final-turn output (replaces heading-based regex parsing)
+# ---------------------------------------------------------------------------
+
+
+class FindingDraft(BaseModel):
+    """
+    Structured conclusion produced by the model on the final investigation turn.
+
+    The agent is asked to return a JSON object matching this schema instead of
+    the legacy CONCLUSION/INTERPRETATION/LIMITATIONS heading format.
+    FindingComposer validates and consumes this before falling back to regex.
+    """
+
+    conclusion: str = Field(
+        ..., min_length=1, description="Direct, evidence-backed answer to the question."
+    )
+    interpretation: str = Field(
+        default="", description="What the evidence implies beyond the raw numbers."
+    )
+    limitations: list[str] = Field(
+        default_factory=list,
+        description="Caveats, confounders, and what the evidence does not show.",
+    )
+    primary_evidence_call_ids: list[str] = Field(
+        default_factory=list,
+        description="call_id values of the tool calls whose results were the decisive evidence.",
+    )
+
+    @field_validator("conclusion")
+    @classmethod
+    def conclusion_not_blank(cls, v: str) -> str:
+        cleaned = v.strip()
+        if not cleaned:
+            raise ValueError("conclusion must not be empty or whitespace only")
+        return cleaned
+
+    @field_validator("limitations", mode="before")
+    @classmethod
+    def normalize_limitations(cls, v: Any) -> list[str]:
+        """Accept a bare string (one block of text) or a list; always return list[str]."""
+        if isinstance(v, str):
+            return [line.strip() for line in v.splitlines() if line.strip()]
+        if isinstance(v, list):
+            return [str(item).strip() for item in v if str(item).strip()]
+        return []

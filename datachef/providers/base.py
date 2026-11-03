@@ -65,6 +65,7 @@ class BaseProvider(ABC):
         tool_choice: str = "auto",
         temperature: float = 0.2,
         max_tokens: int = 1024,
+        response_format: dict[str, Any] | None = None,
     ) -> ProviderResponse:
         """
         Send a chat completion request and return a normalized ProviderResponse.
