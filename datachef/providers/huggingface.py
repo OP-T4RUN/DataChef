@@ -76,9 +76,14 @@ class HuggingFaceProvider(BaseProvider):
         tool_choice: str = "auto",
         temperature: float = 0.2,
         max_tokens: int = 1024,
+        response_format: dict[str, Any] | None = None,
     ) -> ProviderResponse:
         """Send a chat completion request with retry logic."""
         last_exc: Exception | None = None
+
+        extra_kwargs: dict[str, Any] = {}
+        if response_format and (not tools or tool_choice == "none"):
+            extra_kwargs["response_format"] = response_format
 
         for attempt in range(self._max_retries + 1):
             if attempt > 0:
@@ -86,14 +91,32 @@ class HuggingFaceProvider(BaseProvider):
                 time.sleep(wait)
 
             try:
-                response = self._client.chat.completions.create(
-                    model=self._model,
-                    messages=messages,  # type: ignore[arg-type]
-                    tools=tools if tools else None,  # type: ignore[arg-type]
-                    tool_choice=tool_choice if tools else None,
-                    temperature=temperature,
-                    max_tokens=max_tokens,
-                )
+                try:
+                    response = self._client.chat.completions.create(
+                        model=self._model,
+                        messages=messages,  # type: ignore[arg-type]
+                        tools=tools if tools else None,  # type: ignore[arg-type]
+                        tool_choice=tool_choice if tools else None,
+                        temperature=temperature,
+                        max_tokens=max_tokens,
+                        **extra_kwargs,
+                    )
+                except HfHubHTTPError as hf_err:
+                    status = getattr(hf_err, "response", None)
+                    status_code = getattr(status, "status_code", None) if status else None
+                    if status_code == 400 and extra_kwargs:
+                        # Degradation fallback: provider does not support response_format
+                        extra_kwargs.clear()
+                        response = self._client.chat.completions.create(
+                            model=self._model,
+                            messages=messages,  # type: ignore[arg-type]
+                            tools=tools if tools else None,  # type: ignore[arg-type]
+                            tool_choice=tool_choice if tools else None,
+                            temperature=temperature,
+                            max_tokens=max_tokens,
+                        )
+                    else:
+                        raise
                 return self._normalize_response(response)
 
             except HfHubHTTPError as exc:

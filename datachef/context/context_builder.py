@@ -11,6 +11,7 @@ import json
 
 from datachef.context.models import (
     DatasetProfile,
+    FindingDraft,
     ToolCallRecord,
 )
 
@@ -148,10 +149,13 @@ class ContextBuilder:
     ) -> str:
         """Return the turn-end instruction appended to every user message."""
         if is_final_turn:
+            schema = FindingDraft.model_json_schema()
             return (
                 "This is your final turn. "
                 "Do NOT call any more tools. "
-                "Provide your final conclusion based on the evidence collected so far."
+                "Provide your final conclusion as a JSON object matching this schema exactly:\n"
+                f"{json.dumps(schema, indent=2)}\n"
+                "Return ONLY valid JSON. Do not include any other text."
             )
         remaining_calls = max_tool_calls - tool_calls_used
         remaining_turns = max_turns - turns_used

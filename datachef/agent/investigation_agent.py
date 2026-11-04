@@ -19,7 +19,11 @@ from typing import Any
 import polars as pl
 
 from datachef import config
-from datachef.agent.finding_composer import FindingComposer
+from datachef.agent.finding_composer import (
+    FindingComposer,
+    _has_conclusion_heading,
+    _parse_finding_draft,
+)
 from datachef.agent.prompt_builder import PromptBuilder
 from datachef.agent.tool_call_parser import ToolCallParseError, ToolCallParser
 from datachef.analytics.chart_builder import ChartBuilder
@@ -27,6 +31,7 @@ from datachef.analytics.discovery_engine import DiscoveryEngine
 from datachef.context.models import (
     CandidateFinding,
     Finding,
+    FindingDraft,
     InvestigationState,
     ToolCallRecord,
 )
@@ -154,6 +159,8 @@ class InvestigationAgent:
         start_time = time.perf_counter()
         hit_limit = False
         limit_reason: str | None = None
+        draft_retry_used = False
+        retry_error_instruction: str | None = None
 
         while True:
             # --- Check limits ---
@@ -172,7 +179,7 @@ class InvestigationAgent:
             elif sub_state.turn_count >= config.MAX_TURNS - 1:
                 hit_limit, limit_reason = True, "max_turns"
 
-            is_final = hit_limit
+            is_final = hit_limit or draft_retry_used
 
             # --- Build turn message ---
             turn_msg = self._prompt_builder.build_turn_message(
@@ -180,6 +187,9 @@ class InvestigationAgent:
                 state=sub_state,
                 is_final_turn=is_final,
             )
+            if retry_error_instruction:
+                turn_msg = f"{retry_error_instruction}\n\n{turn_msg}"
+                retry_error_instruction = None
             if suggested_tools and sub_state.turn_count == 0:
                 turn_msg += (
                     f"\n\nSuggested starting tools: {', '.join(suggested_tools)}"
@@ -193,6 +203,11 @@ class InvestigationAgent:
 
             # --- API call ---
             tool_choice = "none" if is_final else "auto"
+            response_format = (
+                {"type": "json_object", "schema": FindingDraft.model_json_schema()}
+                if is_final
+                else None
+            )
             try:
                 response = self._provider.chat_completion(
                     messages=messages_copy,
@@ -200,6 +215,7 @@ class InvestigationAgent:
                     tool_choice=tool_choice,
                     temperature=config.TEMPERATURE,
                     max_tokens=config.MAX_RESPONSE_TOKENS,
+                    response_format=response_format,
                 )
             except CreditExhaustedError as exc:
                 finding = self._composer.compose_error_finding(
@@ -261,9 +277,28 @@ class InvestigationAgent:
 
             # Text conclusion (no tool calls)
             if not tool_calls or is_final:
+                content = response.content or ""
+
+                draft = _parse_finding_draft(content)
+                is_legacy_text = _has_conclusion_heading(content)
+                if (
+                    draft is None
+                    and not is_legacy_text
+                    and not draft_retry_used
+                    and sub_state.turn_count < config.MAX_TURNS
+                    and response.finish_reason != "length"
+                ):
+                    draft_retry_used = True
+                    schema_str = json.dumps(FindingDraft.model_json_schema(), indent=2)
+                    messages.append({"role": "assistant", "content": content})
+                    retry_error_instruction = (
+                        "Your response could not be parsed as a valid FindingDraft JSON object. "
+                        f"Please return ONLY a valid JSON object matching this schema:\n{schema_str}"
+                    )
+                    continue
+
                 if on_step:
                     on_step("composing", {"turn": sub_state.turn_count})
-                content = response.content or ""
                 if response.finish_reason == "length":
                     content += (
                         "\n\nLIMITATIONS:\n- The provider truncated the final response "

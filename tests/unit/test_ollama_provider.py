@@ -115,3 +115,31 @@ def test_ollama_provider_connection_error():
             )
 
         assert "Could not connect to Ollama" in str(exc_info.value)
+
+
+
+def test_ollama_provider_passes_format_when_response_format_provided():
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {
+        "model": "llama3.2",
+        "message": {"role": "assistant", "content": '{"conclusion": "done"}'},
+        "prompt_eval_count": 10,
+        "eval_count": 10,
+    }
+
+    provider = OllamaProvider(host="http://localhost:11434", model_id="llama3.2")
+    schema = {"type": "object", "properties": {"conclusion": {"type": "string"}}}
+
+    with patch("requests.post", return_value=mock_response) as mock_post:
+        resp = provider.chat_completion(
+            messages=[{"role": "user", "content": "Conclude"}],
+            tools=[],
+            tool_choice="none",
+            response_format={"type": "json_object", "schema": schema},
+        )
+
+        assert mock_post.called
+        payload = mock_post.call_args[1]["json"]
+        assert payload.get("format") == schema
+        assert resp.content == '{"conclusion": "done"}'

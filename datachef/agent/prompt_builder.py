@@ -44,10 +44,8 @@ You may call any of the following tools. Call them with valid arguments only.
 - Start by identifying the most directly relevant tool for the question.
 - After each result, decide: is this sufficient to conclude, or is follow-up needed?
 - Keep follow-up calls focused — each should add new evidence, not repeat prior calls.
-- When concluding, structure your response as:
-  CONCLUSION: <clear answer to the question>
-  INTERPRETATION: <what the evidence suggests>
-  LIMITATIONS: <what the evidence does not show, and what caveats apply>
+- When concluding, you will be asked to provide a structured JSON response.
+  Follow the JSON schema provided in the final turn instruction exactly.
 """
 
 _DISCOVERY_SYSTEM_ADDENDUM = """

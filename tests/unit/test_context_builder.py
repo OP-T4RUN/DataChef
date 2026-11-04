@@ -52,3 +52,39 @@ def test_context_builder_turn_context_no_raw_rows():
     summary = builder.build_profile_summary()
     assert "val_1" in summary
     assert "val_2" in summary
+
+
+
+def test_context_builder_turn_instruction_intermediate_turn():
+    df = pl.DataFrame({"x": [1, 2]})
+    profile = DatasetProfiler().profile(df, source_path="test.csv")
+    builder = ContextBuilder(profile)
+
+    instruction = builder.build_turn_instruction(
+        tool_calls_used=2,
+        max_tool_calls=5,
+        turns_used=1,
+        max_turns=3,
+        is_final_turn=False,
+    )
+    assert "2/5 tool calls" in instruction
+    assert "1/3 turns" in instruction
+    assert "Call a tool if more evidence is needed" in instruction
+
+
+def test_context_builder_turn_instruction_final_turn_contains_json_schema():
+    df = pl.DataFrame({"x": [1, 2]})
+    profile = DatasetProfiler().profile(df, source_path="test.csv")
+    builder = ContextBuilder(profile)
+
+    instruction = builder.build_turn_instruction(
+        tool_calls_used=5,
+        max_tool_calls=5,
+        turns_used=2,
+        max_turns=3,
+        is_final_turn=True,
+    )
+    assert "This is your final turn" in instruction
+    assert "Do NOT call any more tools" in instruction
+    assert "FindingDraft" in instruction or "conclusion" in instruction
+    assert "Return ONLY valid JSON" in instruction
